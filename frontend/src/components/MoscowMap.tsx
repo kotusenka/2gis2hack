@@ -12,8 +12,6 @@ interface MoscowMapProps {
   center?: [number, number]
 }
 
-const apiKey = "39d1fbf7-ca4d-4871-9f90-c3f3698ef3dc"
-
 export default function MoscowMap({
   width = '100%',
   height = '600px',
