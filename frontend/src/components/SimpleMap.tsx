@@ -50,8 +50,8 @@
     // marker.setLabel({ text: `${count} чел.`, offset: [0, -10], color: '#111' }) // скрываем количество людей
 
     let nextIconKey: 'green' | 'yellow' | 'red' = 'green'
-    if (count === 6) nextIconKey = 'yellow'
-    else if (count >= 7) nextIconKey = 'red'
+    if (count === 1) nextIconKey = 'yellow'
+    else if (count >= 2) nextIconKey = 'red'
 
     if (currentIconRef.current !== nextIconKey) {
       const url = ICONS[nextIconKey]
