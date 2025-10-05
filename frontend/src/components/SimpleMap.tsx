@@ -10,6 +10,16 @@
     const mapRef = useRef<HTMLDivElement>(null)
   const markersRef = useRef<Map<number, any>>(new Map())
   const busMarkerRef = useRef<any>(null)
+  const wsRef = useRef<WebSocket | null>(null)
+  const lastCountRef = useRef<number | null>(null)
+
+  const applyLatestCountIfReady = () => {
+    const count = lastCountRef.current
+    if (count == null) return
+    const m = busMarkerRef.current || markersRef.current.get(0)
+    if (!m) return
+    m.setLabel({ text: `${count} чел.`, offset: [0, -10], color: '#111' })
+  }
 
     useEffect(() => {
       if (!mapRef.current) return
@@ -31,7 +41,7 @@
           console.log('🎉 Простая карта: загружена!')
 
           // Маршрут автобуса (массив координат [lng, lat])
-          const route = [
+          const route: [number, number][] = [
             [37.62372, 55.74965],
             [37.61306, 55.74789],
             [37.61189, 55.74826],
@@ -57,9 +67,18 @@
           // стартуем без "полоски"
           label: { text: `${0} чел.`, offset: [0, -10], color: '#111' }
         });
+        // Рисуем маршрут цветной линией
+        const routeLine = new mapglAPI.Polyline(map, {
+          coordinates: route,
+          color: '#1976d2',
+          width: 6,
+          opacity: 0.9
+        } as any)
         // сохраняем маркер автобуса с id 0 и прямую ссылку
         markersRef.current.set(0, marker)
         busMarkerRef.current = marker
+        // если уже пришли данные по WS — применим их сразу
+        applyLatestCountIfReady()
       // Функция для интерполяции между двумя точками
 
   //     const directions = new Directions(map, {
@@ -72,21 +91,32 @@
   //     ],
   // });
 
-function interpolateCoordinates(coord1, coord2, t) {
-  return [coord1[0] + (coord2[0] - coord1[0]) * t, coord1[1] + (coord2[1] - coord1[1]) * t];
+function interpolateCoordinates(
+  coord1: [number, number],
+  coord2: [number, number],
+  t: number
+): [number, number] {
+  return [
+    coord1[0] + (coord2[0] - coord1[0]) * t,
+    coord1[1] + (coord2[1] - coord1[1]) * t
+  ]
 }
 
-function animateTravel(marker, route, durationPerSegment) {
+function animateTravel(
+  marker: any,
+  route: [number, number][],
+  durationPerSegment: number
+) {
   let segmentIndex = 0;
   
 
-  function animateSegment(startTime) {
+  function animateSegment(startTime: number) {
       const elapsedTime = performance.now() - startTime;
       const t = elapsedTime / durationPerSegment; // Процент завершения сегмента
 
       if (t < 1) {
           // Интерполяция координат
-          const newCoords = interpolateCoordinates(
+          const newCoords: [number, number] = interpolateCoordinates(
               route[segmentIndex],
               route[segmentIndex + 1],
               t,
@@ -119,7 +149,7 @@ const durationPerSegment = 20000;
 animateTravel(marker, route, durationPerSegment);
 
 
-          map.setCenter(route[0][0], route[0][1])
+          map.setCenter(route[0])
           map.setZoom(14)
         })
         
@@ -135,25 +165,35 @@ animateTravel(marker, route, durationPerSegment);
   // WebSocket: обновление подписи маркера в реальном времени (вне колбэков)
   useEffect(() => {
     const ws = new WebSocket('ws://192.168.195.57:8000/ws/aaa')
+    wsRef.current = ws
     ws.onopen = () => {
       console.log('WebSocket connected')
     }
     ws.onmessage = (e) => {
+      let nextCount: number | null = null
       try {
-        const { count } = JSON.parse(e.data)
-        console.log(count)
-        console.log(busMarkerRef.current)
-        console.log(markersRef.current.get(0))
-        const m = busMarkerRef.current || markersRef.current.get(0)
-        if (m && typeof count === 'number') {
-          console.log('setLabe', count)
-          // m.SetIcon({url: '/icons/red.svg', size: [32, 32]})
-          m.setLabel({ text: `${count} чел.`, offset: [0, -10], color: '#111' })
-          console.log("setLabel")
+        const parsed = JSON.parse(e.data)
+        console.log(parsed)
+        if (parsed && typeof parsed.count === 'number') {
+          nextCount = parsed.count
         }
-      } catch {}
+      } catch (err) {
+        const n = Number(e.data)
+        if (!Number.isNaN(n)) nextCount = n
+      }
+
+      if (nextCount != null) {
+        lastCountRef.current = nextCount
+        applyLatestCountIfReady()
+      }
     }
-    return () => ws.close()
+    ws.onclose = () => {
+      console.log('WebSocket closed')
+    }
+    return () => {
+      try { ws.close() } catch {}
+      wsRef.current = null
+    }
   }, [])
 
     return (
