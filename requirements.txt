@@ -1,0 +1,6 @@
+pyobjc-core>=10.1
+pyobjc-framework-CoreBluetooth>=10.1
+pyobjc-framework-IOBluetooth>=10.1
+bleak>=0.22.3
+PyQt6>=6.7.0
+
