@@ -14,6 +14,7 @@
   const lastCountRef = useRef<number | null>(null)
   const mapInstanceRef = useRef<any>(null)
   const currentIconRef = useRef<'default' | 'green' | 'yellow' | 'red'>('default')
+  const trailingMarkerRef = useRef<any>(null)
 
   // Пути до иконок маркера (используем абсолютные URL, чтобы исключить /undefined)
   const ICONS = {
@@ -46,7 +47,7 @@
   const updateMarkerAppearance = (count: number) => {
     const marker: any = busMarkerRef.current || markersRef.current.get(0)
     if (!marker) return
-    marker.setLabel({ text: `${count} чел.`, offset: [0, -10], color: '#111' })
+    // marker.setLabel({ text: `${count} чел.`, offset: [0, -10], color: '#111' }) // скрываем количество людей
 
     let nextIconKey: 'green' | 'yellow' | 'red' = 'green'
     if (count === 6) nextIconKey = 'yellow'
@@ -86,9 +87,9 @@
           // Маршрут автобуса (массив координат [lng, lat])
           const route: [number, number][] = [
             [37.62372, 55.74965],
-            [37.61306, 55.74789],
-            [37.61189, 55.74826],
-            [37.61097, 55.74889],
+            [37.611929, 55.747856], //37.611929, 55.747856
+         //   [37.61189, 55.74826],
+         //   [37.61097, 55.74889],
             [37.6095, 55.74937],
             [37.60972, 55.75055],
             [37.61114, 55.75259],
@@ -113,8 +114,15 @@
           icon: ICONS.green,
           size: MARKER_SIZE,
           // стартуем без "полоски"
-          label: { text: `${0} чел.`, offset: [0, -10], color: '#111' }
+          // label: { text: `${0} чел.`, offset: [0, -10], color: '#111' } // скрываем количество людей
         });
+        // Зелёный хвостовой маркер, едет позади без лейблов
+        const trailingMarker = new mapglAPI.Marker(map, {
+          coordinates: [37.62372, 55.74965],
+          icon: ICONS.green,
+          size: MARKER_SIZE,
+        })
+        trailingMarkerRef.current = trailingMarker
         // Рисуем маршрут цветной линией
         const routeLine = new mapglAPI.Polyline(map, {
           coordinates: route,
@@ -153,14 +161,16 @@ function interpolateCoordinates(
 function animateTravel(
   marker: any,
   route: [number, number][],
-  durationPerSegment: number
+  durationPerSegment: number,
+  perSegmentDuration?: (segmentIndex: number) => number
 ) {
   let segmentIndex = 0;
   
 
   function animateSegment(startTime: number) {
       const elapsedTime = performance.now() - startTime;
-      const t = elapsedTime / durationPerSegment; // Процент завершения сегмента
+      const currentDuration = perSegmentDuration ? perSegmentDuration(segmentIndex) : durationPerSegment;
+      const t = elapsedTime / currentDuration; // Процент завершения сегмента
 
       if (t < 1) {
           // Интерполяция координат
@@ -193,8 +203,23 @@ function animateTravel(
 }
 
 // Вызов функции анимации
-const durationPerSegment = 20000;
-animateTravel(marker, route, durationPerSegment);
+const BASE_SEGMENT_DURATION_MS = 20000;
+const getSegmentDuration = (idx: number) => {
+  // Ускоряем участок между 2-й и 3-й точками маршрута (индекс сегмента 1)
+  if (idx === 1) return Math.max(3000, Math.floor(BASE_SEGMENT_DURATION_MS / 3));
+  return BASE_SEGMENT_DURATION_MS;
+};
+animateTravel(marker, route, BASE_SEGMENT_DURATION_MS, getSegmentDuration);
+
+// Хвостовой маркер стартует с задержкой, чтобы быть "сзади"
+const TRAILING_DELAY_MS = 7000; // увеличиваем расстояние (задержку) хвоста
+setTimeout(() => {
+  try {
+    if (trailingMarkerRef.current) {
+      animateTravel(trailingMarkerRef.current, route, BASE_SEGMENT_DURATION_MS, getSegmentDuration)
+    }
+  } catch {}
+}, TRAILING_DELAY_MS);
 
 
           map.setCenter(route[0])
