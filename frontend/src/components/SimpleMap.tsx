@@ -12,13 +12,53 @@
   const busMarkerRef = useRef<any>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const lastCountRef = useRef<number | null>(null)
+  const mapInstanceRef = useRef<any>(null)
+  const currentIconRef = useRef<'default' | 'green' | 'yellow' | 'red'>('default')
+
+  // Пути до иконок маркера (используем абсолютные URL, чтобы исключить /undefined)
+  const ICONS = {
+    default: 'https://docs.2gis.com/img/mapgl/marker.svg',
+    green: (typeof window !== 'undefined' ? window.location.origin : '') + '/icons/green.svg',
+    yellow: (typeof window !== 'undefined' ? window.location.origin : '') + '/icons/yellow.svg',
+    red: (typeof window !== 'undefined' ? window.location.origin : '') + '/icons/red.svg',
+  } as const
+
+  // Размер иконки маркера (в пикселях)
+  const MARKER_SIZE: [number, number] = [32, 32]
+
+  // Предзагрузка иконок, чтобы избежать мига и 404 undefined
+  const preloadIcons = () => {
+    try {
+      ;[ICONS.default, ICONS.green, ICONS.yellow, ICONS.red].forEach((url) => {
+        const img = new Image()
+        img.src = url
+      })
+    } catch {}
+  }
 
   const applyLatestCountIfReady = () => {
     const count = lastCountRef.current
     if (count == null) return
-    const m = busMarkerRef.current || markersRef.current.get(0)
-    if (!m) return
-    m.setLabel({ text: `${count} чел.`, offset: [0, -10], color: '#111' })
+    updateMarkerAppearance(count)
+  }
+
+  // Обновление подписи и иконки маркера по значению счётчика
+  const updateMarkerAppearance = (count: number) => {
+    const marker: any = busMarkerRef.current || markersRef.current.get(0)
+    if (!marker) return
+    marker.setLabel({ text: `${count} чел.`, offset: [0, -10], color: '#111' })
+
+    let nextIconKey: 'green' | 'yellow' | 'red' = 'green'
+    if (count === 6) nextIconKey = 'yellow'
+    else if (count >= 7) nextIconKey = 'red'
+
+    if (currentIconRef.current !== nextIconKey) {
+      const url = ICONS[nextIconKey]
+      if (url && typeof marker.setIcon === 'function') {
+        marker.setIcon({ icon: url, size: MARKER_SIZE } as any)
+        currentIconRef.current = nextIconKey
+      }
+    }
   }
 
     useEffect(() => {
@@ -26,7 +66,9 @@
 
       console.log('🧪 Простая карта: начинаем загрузку...')
       
+      let cancelled = false
       load().then((mapglAPI) => {
+        if (cancelled || !mapRef.current) return
         console.log('✅ Простая карта: API загружен')
         
         const map = new mapglAPI.Map(mapRef.current!, {
@@ -34,6 +76,7 @@
           zoom: 13,
           key: '39d1fbf7-ca4d-4871-9f90-c3f3698ef3dc',
         })
+        mapInstanceRef.current = map
         
         console.log('✅ Простая карта: создана', map)
         
@@ -61,9 +104,14 @@
             [37.62372, 55.74965], // Маршрут замыкается начальной точкой
         ];
 
+        // Предзагрузим иконки до создания маркера
+        preloadIcons()
+
         const marker = new mapglAPI.Marker(map, {
           coordinates: [37.62372, 55.74965],
-          icon: 'https://docs.2gis.com/img/mapgl/marker.svg',
+          // По умолчанию считаем 0 → зелёный
+          icon: ICONS.green,
+          size: MARKER_SIZE,
           // стартуем без "полоски"
           label: { text: `${0} чел.`, offset: [0, -10], color: '#111' }
         });
@@ -160,6 +208,17 @@ animateTravel(marker, route, durationPerSegment);
       }).catch((err: any) => {
         console.error('❌ Простая карта: ошибка API', err)
       })
+
+      // Чистка: уничтожаем карту при размонтировании, чтобы в dev не плодились инстансы
+      return () => {
+        cancelled = true
+        try {
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.destroy()
+            mapInstanceRef.current = null
+          }
+        } catch {}
+      }
     }, [])
 
   // WebSocket: обновление подписи маркера в реальном времени (вне колбэков)
@@ -185,6 +244,8 @@ animateTravel(marker, route, durationPerSegment);
       if (nextCount != null) {
         lastCountRef.current = nextCount
         applyLatestCountIfReady()
+        // Обновим иконку/лейбл сразу
+        updateMarkerAppearance(nextCount)
       }
     }
     ws.onclose = () => {
@@ -197,14 +258,13 @@ animateTravel(marker, route, durationPerSegment);
   }, [])
 
     return (
-      <div className="w-full h-96 border-2 border-red-500 bg-gray-100">
+      <div className="w-full h-full">
         <div 
           ref={mapRef}
           className="w-full h-full"
           style={{ 
             width: '100%', 
-            height: '100%',
-            minHeight: '384px' // 24rem = 384px
+            height: '100%'
           }}
         />
       </div>
