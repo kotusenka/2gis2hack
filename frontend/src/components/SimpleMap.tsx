@@ -1,6 +1,6 @@
   'use client'
 
-  import { useEffect, useRef } from 'react'
+  import { useEffect, useRef, useState } from 'react'
   import { load } from '@2gis/mapgl'
   import { Directions } from '@2gis/mapgl-directions'
 
@@ -15,6 +15,36 @@
   const mapInstanceRef = useRef<any>(null)
   const currentIconRef = useRef<'default' | 'green' | 'yellow' | 'red'>('default')
   const trailingMarkerRef = useRef<any>(null)
+
+  // Состояние и логика всплывающих уведомлений (тостов)
+  const [toast, setToast] = useState<null | { type: 'yellow' | 'red'; id: number }>(null)
+  const toastTimerRef = useRef<number | null>(null)
+
+  // Показ тоста на 5 секунд
+  const showToast = (type: 'yellow' | 'red') => {
+    try { if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current) } catch {}
+    setToast({ type, id: Date.now() })
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 5000)
+  }
+
+  // Dev-хелперы для теста всплывашек без сокета
+  useEffect(() => {
+    try {
+      ;(window as any).busToastYellow = () => showToast('yellow')
+      ;(window as any).busToastRed = () => showToast('red')
+      ;(window as any).busToast = (count: number) => {
+        if (count === 1) showToast('yellow')
+        else if (count >= 2) showToast('red')
+      }
+    } catch {}
+    return () => {
+      try {
+        delete (window as any).busToastYellow
+        delete (window as any).busToastRed
+        delete (window as any).busToast
+      } catch {}
+    }
+  }, [])
 
   // Пути до иконок маркера (используем абсолютные URL, чтобы исключить /undefined)
   const ICONS = {
@@ -59,6 +89,13 @@
         marker.setIcon({ icon: url, size: MARKER_SIZE } as any)
         currentIconRef.current = nextIconKey
       }
+    }
+
+    // Всплывающие уведомления по требованиям
+    if (count === 1) {
+      showToast('yellow')
+    } else if (count >= 2) {
+      showToast('red')
     }
   }
 
@@ -284,6 +321,32 @@ setTimeout(() => {
 
     return (
       <div className="w-full h-full">
+        {/* Всплывающее уведомление поверх карты (не мешает кликам по карте) */}
+        {toast && (
+          <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-6 z-50">
+            <div className={
+              `pointer-events-auto max-w-[92vw] md:max-w-xl px-4 py-3 rounded-2xl shadow-2xl ring-1 backdrop-blur-lg ` +
+              `ring-black/10 ${toast.type === 'yellow' ? 'bg-white/90' : 'bg-white/95'}`
+            } role="alert" aria-live="polite">
+              {toast.type === 'yellow' ? (
+                <div className="flex items-start gap-3">
+                  <div className="text-yellow-500 text-xl">🚌</div>
+                  <div className="text-sm md:text-base text-gray-800">
+                    Следующий автобус <span className="text-emerald-600 font-semibold">посвободнее</span> — его ждать <span className="text-emerald-600 font-semibold">~3 минуты</span>.
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3">
+                  <div className="text-red-500 text-xl">🚌</div>
+                  <div className="text-sm md:text-base text-gray-800">
+                    Этот автобус <span className="text-red-600 font-semibold">переполнен</span>, лучше <span className="text-emerald-600 font-semibold">подождать</span> следующий.
+                    <div className="mt-0.5 text-[13px] md:text-sm text-gray-600">Он прибудет через <span className="text-emerald-600 font-semibold">~4 минуты</span>.</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         <div 
           ref={mapRef}
           className="w-full h-full"
